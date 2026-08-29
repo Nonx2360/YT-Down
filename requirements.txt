@@ -1,3 +1,5 @@
 yt-dlp>=2024.1.1
 rich>=13.0
 questionary>=2.0
+term_image>=0.7
+pillow>=10.0

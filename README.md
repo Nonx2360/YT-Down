@@ -14,6 +14,7 @@ quality selection, custom save location, and full song metadata.
 ## Features
 
 - Interactive arrow-key menus (no typing numbers)
+- **Thumbnail preview** — see the video thumbnail in your terminal before downloading
 - MP4 download with every available resolution picked dynamically from the video (144p → 4K, incl. 60fps)
 - MP3 extraction with bitrate choice (128 / 192 / 320 kbps, or best)
 - Embedded metadata on MP3s — title, artist, album, genre, date, description, and album art thumbnail

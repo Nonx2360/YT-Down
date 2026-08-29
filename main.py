@@ -18,6 +18,7 @@ from core.paths import default_save_dir, ensure_dir
 from ui import prompts
 from ui.banner import APP_NAME, VERSION, console, print_banner
 from ui.progress import DownloadHook, create_progress
+from ui.thumbnail import show_thumbnail
 
 downloader = Downloader()
 
@@ -171,6 +172,8 @@ def main() -> None:
             if info.get("_type") == "playlist" and info.get("entries"):
                 info = info["entries"][0]
 
+            console.print()
+            show_thumbnail(info, console)
             show_video_summary(info)
             run_download(url, info)
 
