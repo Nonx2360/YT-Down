@@ -5,3 +5,4 @@ build/
 dist/
 *.spec
 .opencode/
+youtube-downloader-cli-plan.md
