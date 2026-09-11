@@ -32,15 +32,22 @@ PLAYLIST_CHOICES = [
 ]
 
 
-def ask_url() -> str:
+def ask_url() -> str | None:
+    """Prompt for a YouTube URL.
+
+    Returns the validated URL, None if the user typed /exit, or empty string
+    to re-prompt.
+    """
     while True:
         url = questionary.text(
-            "Paste the YouTube URL:",
+            "Paste the YouTube URL (or /exit to quit):",
             style=STYLE,
             validate=lambda value: bool(value.strip()),
         ).ask()
         if not url:
             continue
+        if url.strip().lower() in ("/exit", "/quit"):
+            return None
         valid, result = validate_youtube_url(url)
         if valid:
             return result

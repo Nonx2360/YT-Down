@@ -231,6 +231,9 @@ def run_interactive(config: Config, cli_args: Any) -> None:
     while True:
         try:
             url = prompts.ask_url()
+            if url is None:
+                console.print("[dim]Thanks for using YT-Down. Goodbye![/]")
+                break
             if not url:
                 continue
 
