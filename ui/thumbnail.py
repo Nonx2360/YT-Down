@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Optional
 from urllib.request import urlretrieve
 
 from rich.console import Console
-
-from core.formats import human_size
 
 console = Console()
 

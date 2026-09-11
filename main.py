@@ -6,6 +6,8 @@ from typing import Any
 
 from rich.panel import Panel
 
+from core.cli import parse_args
+from core.config import Config, load_config
 from core.downloader import Downloader, ffmpeg_available
 from core.formats import (
     BEST_AUDIO,
@@ -14,9 +16,10 @@ from core.formats import (
     format_duration,
     human_size,
 )
-from core.paths import default_save_dir, ensure_dir
+from core.paths import ensure_dir
+from core.validation import validate_youtube_url
 from ui import prompts
-from ui.banner import APP_NAME, VERSION, console, print_banner
+from ui.banner import console, print_banner
 from ui.progress import DownloadHook, create_progress
 from ui.thumbnail import show_thumbnail
 
@@ -57,9 +60,9 @@ def show_video_summary(info: dict[str, Any]) -> None:
     console.print(Panel("\n".join(lines), border_style="cyan", padding=(1, 2)))
 
 
-def choose_save_dir() -> Path:
+def choose_save_dir(config: Config) -> Path:
     while True:
-        path = prompts.ask_save_dir(default_save_dir())
+        path = prompts.ask_save_dir(config.save_dir)
         if path.exists():
             return path
         if not prompts.confirm_create_dir(path):
@@ -69,23 +72,43 @@ def choose_save_dir() -> Path:
         return path
 
 
-def run_download(url: str, info: dict[str, Any]) -> None:
-    media_type = prompts.ask_media_type()
+def run_download(
+    url: str,
+    info: dict[str, Any],
+    config: Config,
+    media_type: str | None = None,
+    quality: str | None = None,
+    output_dir: Path | None = None,
+    verbose: bool = False,
+) -> None:
+    if media_type is None:
+        media_type = prompts.ask_media_type()
 
     if media_type == "mp3":
         if not ffmpeg_available():
             console.print("[error]MP3 conversion requires ffmpeg — aborting this download.[/]")
             return
         options = build_audio_options(info.get("formats") or [])
-        choice = prompts.ask_audio_bitrate(options)
-        format_sel = BEST_AUDIO
-        bitrate = None if choice == BEST_AUDIO else choice
+        if quality:
+            bitrate = quality
+            format_sel = BEST_AUDIO
+        else:
+            choice = prompts.ask_audio_bitrate(options)
+            format_sel = BEST_AUDIO
+            bitrate = None if choice == BEST_AUDIO else choice
     else:
         options = build_video_options(info.get("formats") or [])
-        format_sel = prompts.ask_video_quality(options)
+        if quality:
+            format_sel = quality
+        else:
+            format_sel = prompts.ask_video_quality(options)
         bitrate = None
 
-    save_dir = choose_save_dir()
+    if output_dir is not None:
+        save_dir = output_dir
+        save_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        save_dir = choose_save_dir(config)
 
     progress = create_progress()
     task_id = progress.add_task("Downloading…", total=None)
@@ -111,6 +134,8 @@ def run_download(url: str, info: dict[str, Any]) -> None:
             media_type=media_type,
             bitrate=bitrate,
             progress_hook=hook,
+            title_max=config.title_max_chars,
+            verbose=verbose,
         )
     except Exception as exc:
         progress.stop()
@@ -152,14 +177,57 @@ def run_download(url: str, info: dict[str, Any]) -> None:
     )
 
 
-def main() -> None:
-    if "--version" in sys.argv or "-V" in sys.argv:
-        print(f"{APP_NAME} {VERSION}")
+def handle_playlist(
+    url: str,
+    info: dict[str, Any],
+    config: Config,
+    cli_args: Any,
+) -> None:
+    """Handle a playlist: prompt user or auto-download based on config."""
+    entries = info.get("entries") or []
+    if not entries:
+        console.print("[warning]Playlist appears to be empty.[/]")
         return
 
-    print_banner()
-    check_ffmpeg()
+    if cli_args.yes_playlist:
+        action = "all"
+    else:
+        action = prompts.ask_playlist_action(len(entries))
 
+    if action == "cancel":
+        return
+    elif action == "first":
+        first = entries[0]
+        show_thumbnail(first, console)
+        show_video_summary(first)
+        run_download(
+            url,
+            first,
+            config,
+            media_type=cli_args.format if cli_args.url else None,
+            quality=cli_args.quality,
+            output_dir=Path(cli_args.output) if cli_args.output else None,
+            verbose=cli_args.verbose,
+        )
+    else:
+        for i, entry in enumerate(entries, 1):
+            entry_url = entry.get("url") or url
+            console.print(f"\n[dim]--- Video {i}/{len(entries)} ---[/]")
+            show_thumbnail(entry, console)
+            show_video_summary(entry)
+            run_download(
+                entry_url,
+                entry,
+                config,
+                media_type=cli_args.format if cli_args.url else None,
+                quality=cli_args.quality,
+                output_dir=Path(cli_args.output) if cli_args.output else None,
+                verbose=cli_args.verbose,
+            )
+
+
+def run_interactive(config: Config, cli_args: Any) -> None:
+    """Full interactive mode — original questionary-driven flow."""
     while True:
         try:
             url = prompts.ask_url()
@@ -169,13 +237,18 @@ def main() -> None:
             with console.status("Fetching video info…"):
                 info = downloader.fetch_info(url)
 
-            if info.get("_type") == "playlist" and info.get("entries"):
-                info = info["entries"][0]
-
-            console.print()
-            show_thumbnail(info, console)
-            show_video_summary(info)
-            run_download(url, info)
+            is_playlist = info.get("_type") == "playlist" and info.get("entries")
+            if is_playlist:
+                handle_playlist(url, info, config, cli_args)
+            else:
+                show_thumbnail(info, console)
+                show_video_summary(info)
+                run_download(
+                    url,
+                    info,
+                    config,
+                    verbose=cli_args.verbose,
+                )
 
             if not prompts.ask_download_again():
                 console.print("[dim]Thanks for using YT-Down. Goodbye![/]")
@@ -185,6 +258,52 @@ def main() -> None:
             break
         except Exception as exc:
             console.print(f"[error]Something went wrong:[/] {exc}")
+
+
+def run_non_interactive(cli_args: Any, config: Config) -> None:
+    """Non-interactive mode — all options from CLI flags."""
+    valid, result = validate_youtube_url(cli_args.url)
+    if not valid:
+        console.print(f"[error]Invalid URL:[/] {result}")
+        sys.exit(1)
+
+    url = result
+    output_dir = Path(cli_args.output) if cli_args.output else None
+
+    console.print(f"[info]Fetching info for:[/] {url}")
+    try:
+        info = downloader.fetch_info(url, playlist=cli_args.yes_playlist)
+    except Exception as exc:
+        console.print(f"[error]Failed to fetch video info:[/] {exc}")
+        sys.exit(1)
+
+    is_playlist = info.get("_type") == "playlist" and info.get("entries")
+    if is_playlist:
+        handle_playlist(url, info, config, cli_args)
+    else:
+        show_thumbnail(info, console)
+        show_video_summary(info)
+        run_download(
+            url,
+            info,
+            config,
+            media_type=cli_args.format,
+            quality=cli_args.quality,
+            output_dir=output_dir,
+            verbose=cli_args.verbose,
+        )
+
+
+def main() -> None:
+    config = load_config()
+    cli_args = parse_args(config)
+
+    if cli_args.url:
+        run_non_interactive(cli_args, config)
+    else:
+        print_banner()
+        check_ffmpeg()
+        run_interactive(config, cli_args)
 
 
 if __name__ == "__main__":

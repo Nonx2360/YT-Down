@@ -33,11 +33,11 @@ def ffmpeg_available() -> bool:
 
 
 class Downloader:
-    def fetch_info(self, url: str) -> dict[str, Any]:
+    def fetch_info(self, url: str, *, playlist: bool = False) -> dict[str, Any]:
         opts = {
             "quiet": True,
             "no_warnings": True,
-            "noplaylist": True,
+            "noplaylist": not playlist,
             "logger": SILENT_LOGGER,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -51,6 +51,8 @@ class Downloader:
         media_type: str = "mp4",
         bitrate: Optional[str] = None,
         progress_hook: Optional[ProgressHook] = None,
+        title_max: int = 120,
+        verbose: bool = False,
     ) -> tuple[Path, str]:
         postprocessors: list[dict[str, Any]] = []
         if media_type == "mp3":
@@ -62,10 +64,13 @@ class Downloader:
                 }
             )
             postprocessors.append({"key": "FFmpegMetadata"})
+            # EmbedThumbnail runs after FFmpegMetadata — both complete before
+            # extract_info() returns, so the cleanup loop in main.py will not
+            # race with thumbnail embedding.
             postprocessors.append({"key": "EmbedThumbnail"})
 
         save_dir.mkdir(parents=True, exist_ok=True)
-        outtmpl = str(save_dir / "%(title).120B [%(id)s].%(ext)s")
+        outtmpl = str(save_dir / f"%(title).{title_max}B [%(id)s].%(ext)s")
 
         info: Optional[dict[str, Any]] = None
         last_error: Optional[Exception] = None
@@ -83,6 +88,9 @@ class Downloader:
                 "merge_output_format": "mp4",
                 "writethumbnail": media_type == "mp3",
                 "writeinfojson": media_type == "mp3",
+                "continuedl": True,
+                "nosplit": False,
+                "concurrent_fragment_downloads": 4,
             }
             if client is not None:
                 opts["extractor_args"] = {
@@ -91,9 +99,13 @@ class Downloader:
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
+                if verbose and client is not None:
+                    print(f"[debug] Download succeeded using client: {client}")
                 break
             except Exception as exc:
                 last_error = exc
+                if verbose:
+                    print(f"[debug] Client {client or 'default'} failed: {exc}")
                 continue
 
         if info is None:

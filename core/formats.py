@@ -105,7 +105,7 @@ def build_audio_options(formats: list[dict[str, Any]]) -> list[FormatOption]:
         size = human_size(f.get("filesize") or f.get("filesize_approx"))
         options.append(FormatOption(f"{bitrate} kbps · {ext} · {size}", str(bitrate)))
 
-    if len(options) == 1:
+    if not best:
         for b in FALLBACK_MP3_BITRATES:
             options.append(FormatOption(f"{b} kbps", b))
     return options

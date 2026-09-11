@@ -5,6 +5,7 @@ from pathlib import Path
 import questionary
 
 from core.formats import FormatOption
+from core.validation import validate_youtube_url
 
 STYLE = questionary.Style.from_dict(
     {
@@ -24,14 +25,26 @@ TYPE_CHOICES = [
     questionary.Choice("MP3 · Audio only", value="mp3"),
 ]
 
+PLAYLIST_CHOICES = [
+    questionary.Choice("Download all videos", value="all"),
+    questionary.Choice("Download first video only", value="first"),
+    questionary.Choice("Cancel", value="cancel"),
+]
+
 
 def ask_url() -> str:
-    url = questionary.text(
-        "Paste the YouTube URL:",
-        style=STYLE,
-        validate=lambda value: bool(value.strip()),
-    ).ask()
-    return url.strip()
+    while True:
+        url = questionary.text(
+            "Paste the YouTube URL:",
+            style=STYLE,
+            validate=lambda value: bool(value.strip()),
+        ).ask()
+        if not url:
+            continue
+        valid, result = validate_youtube_url(url)
+        if valid:
+            return result
+        questionary.print(f"  Invalid URL: {result}", style="fg:ansired")
 
 
 def ask_media_type() -> str:
@@ -82,5 +95,13 @@ def ask_download_again() -> bool:
     return questionary.confirm(
         "Download another video?",
         default=True,
+        style=STYLE,
+    ).ask()
+
+
+def ask_playlist_action(count: int) -> str:
+    return questionary.select(
+        f"This is a playlist with {count} videos. What would you like to do?",
+        choices=PLAYLIST_CHOICES,
         style=STYLE,
     ).ask()

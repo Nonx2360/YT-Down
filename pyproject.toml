@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-down"
+version = "1.0.0"
+description = "Interactive YouTube downloader CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2024.1.1",
+    "rich>=13.0",
+    "questionary>=2.0",
+    "term_image>=0.7",
+    "pillow>=10.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["core*", "ui*"]
+
+[project.scripts]
+yt-down = "main:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.4", "pip-tools>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
